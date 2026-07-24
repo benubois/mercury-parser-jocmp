@@ -24,4 +24,22 @@ describe('clean($)', () => {
 
     assert.strictEqual(clean($)('body').html(), '<div>HI </div>');
   });
+
+  it('removes nested comments without querying every descendant', () => {
+    const $ = cheerio.load(
+      '<div>before<!-- outer --><span>middle<!-- inner --></span>after</div>',
+      null,
+      false
+    );
+    const $root = $.root();
+    $root.find = () => {
+      throw new Error('cleanComments must not query all descendants');
+    };
+    $.root = () => $root;
+
+    assert.strictEqual(
+      clean($).html(),
+      '<div>before<span>middle</span>after</div>'
+    );
+  });
 });

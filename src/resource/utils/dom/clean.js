@@ -1,11 +1,20 @@
 import { TAGS_TO_REMOVE } from './constants';
 
-function isComment(index, node) {
-  return node.type === 'comment';
-}
-
 function cleanComments($) {
-  $.root().find('*').contents().filter(isComment).remove();
+  const root = $.root().get(0);
+  const stack = root && root.children ? [...root.children] : [];
+  const comments = [];
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node.type === 'comment') {
+      comments.push(node);
+    } else if (node.children) {
+      stack.push(...node.children);
+    }
+  }
+
+  $(comments).remove();
 
   return $;
 }
