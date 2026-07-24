@@ -1,7 +1,15 @@
 import { removeAnchor } from 'utils/text';
 import RootExtractor from 'extractors/root-extractor';
-import GenericExtractor from 'extractors/generic';
 import Resource from 'resource';
+
+export const MAX_PAGES = 5;
+export const MAX_EXTRACTED_CONTENT_LENGTH = 5 * 1024 * 1024;
+
+const encoder = new TextEncoder();
+
+function byteLength(value) {
+  return encoder.encode(value).byteLength;
+}
 
 export default async function collectAllPages({
   next_page_url,
@@ -13,13 +21,12 @@ export default async function collectAllPages({
   title,
   url,
 }) {
-  // At this point, we've fetched just the first page
   let pages = 1;
+  let contentLength = byteLength(result.content || '');
+  let word_count = Number(result.word_count) || 0;
   const previousUrls = [removeAnchor(url)];
-  // If we've gone over 26 pages, something has
-  // likely gone wrong.
-  while (next_page_url && pages < 26) {
-    pages += 1;
+  while (next_page_url && pages < MAX_PAGES) {
+    const pageNumber = pages + 1;
 
     $ = await Resource.create(next_page_url);
     html = $.html();
@@ -34,21 +41,27 @@ export default async function collectAllPages({
     };
 
     const nextPageResult = RootExtractor.extract(Extractor, extractorOpts);
+    const appendedContent = `<hr><h4>Page ${pageNumber}</h4>${
+      nextPageResult.content || ''
+    }`;
+    const appendedLength = byteLength(appendedContent);
+
+    if (contentLength + appendedLength > MAX_EXTRACTED_CONTENT_LENGTH) {
+      break;
+    }
 
     previousUrls.push(next_page_url);
     result = {
       ...result,
-      content: `${result.content}<hr><h4>Page ${pages}</h4>${
-        nextPageResult.content
-      }`,
+      content: `${result.content}${appendedContent}`,
     };
+    contentLength += appendedLength;
+    word_count += (Number(nextPageResult.word_count) || 0) + 2;
+    pages = pageNumber;
 
     next_page_url = nextPageResult.next_page_url;
   }
 
-  const word_count = GenericExtractor.word_count({
-    content: `<div>${result.content}</div>`,
-  });
   return {
     ...result,
     total_pages: pages,
