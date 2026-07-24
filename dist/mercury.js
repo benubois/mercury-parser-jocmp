@@ -1489,16 +1489,24 @@ function convertLazyLoadedImages($) {
   return $;
 }
 
+function pushChildren(stack, children) {
+  for (var index = 0; index < children.length; index += 1) {
+    stack.push(children[index]);
+  }
+}
 function cleanComments($) {
   var root = $.root().get(0);
-  var stack = root && root.children ? _toConsumableArray(root.children) : [];
+  var stack = [];
   var comments = [];
+  if (root && root.children) {
+    pushChildren(stack, root.children);
+  }
   while (stack.length > 0) {
     var node = stack.pop();
     if (node.type === 'comment') {
       comments.push(node);
     } else if (node.children) {
-      stack.push.apply(stack, _toConsumableArray(node.children));
+      pushChildren(stack, node.children);
     }
   }
   $(comments).remove();
