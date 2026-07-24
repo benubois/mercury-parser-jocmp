@@ -732,6 +732,10 @@ function convertToParagraphs($) {
   return $;
 }
 
+function findWithin($context, selector) {
+  return $context.find(":scope :is(".concat(selector, ")")).not($context);
+}
+
 function cleanForHeight($img, $) {
   var height = _parseInt($img.attr('height'), 10);
   var width = _parseInt($img.attr('width'), 10) || 20;
@@ -759,7 +763,7 @@ function removeSpacers($img, $) {
   return $;
 }
 function cleanImages($article, $) {
-  $article.find('img').each(function (index, img) {
+  findWithin($article, 'img').each(function (index, img) {
     var $img = $(img);
     cleanForHeight($img, $);
     removeSpacers($img, $);
@@ -778,7 +782,7 @@ function markToKeep(article, $, url) {
       hostname = _URL$parse.hostname;
     tags = [].concat(_toConsumableArray(tags), ["iframe[src^=\"".concat(protocol, "//").concat(hostname, "\"]")]);
   }
-  $(tags.join(','), article).addClass(KEEP_CLASS);
+  findWithin(article, tags.join(',')).addClass(KEEP_CLASS);
   return $;
 }
 
@@ -790,7 +794,7 @@ function stripJunkTags(article, $) {
 
   // Remove matching elements, but ignore
   // any element with a class of mercury-parser-keep
-  $(tags.join(','), article).not(".".concat(KEEP_CLASS)).remove();
+  findWithin(article, tags.join(',')).not(".".concat(KEEP_CLASS)).remove();
   return $;
 }
 
@@ -798,7 +802,7 @@ function stripJunkTags(article, $) {
 // by the title extractor instead. If there's less than 3 of them (<3),
 // strip them. Otherwise, turn 'em into H2s.
 function cleanHOnes(article, $) {
-  var $hOnes = $('h1', article);
+  var $hOnes = findWithin(article, 'h1');
   if ($hOnes.length < 3) {
     $hOnes.each(function (index, node) {
       return $(node).remove();
@@ -827,8 +831,8 @@ function setAttrs(node, attrs) {
 
 function ownKeys$g(e, r) { var t = _Object$keys(e); if (_Object$getOwnPropertySymbols) { var o = _Object$getOwnPropertySymbols(e); r && (o = o.filter(function (r) { return _Object$getOwnPropertyDescriptor(e, r).enumerable; })), t.push.apply(t, o); } return t; }
 function _objectSpread$g(e) { for (var r = 1; r < arguments.length; r++) { var t = null != arguments[r] ? arguments[r] : {}; r % 2 ? ownKeys$g(Object(t), true).forEach(function (r) { _defineProperty(e, r, t[r]); }) : _Object$getOwnPropertyDescriptors ? _Object$defineProperties(e, _Object$getOwnPropertyDescriptors(t)) : ownKeys$g(Object(t)).forEach(function (r) { _Object$defineProperty(e, r, _Object$getOwnPropertyDescriptor(t, r)); }); } return e; }
-function removeAllButWhitelist($article, $) {
-  $article.find('*').each(function (index, node) {
+function removeAllButWhitelist($article) {
+  findWithin($article, '*').each(function (index, node) {
     var attrs = getAttrs(node);
     setAttrs(node, _Reflect$ownKeys(attrs).reduce(function (acc, attr) {
       if (WHITELIST_ATTRS_RE.test(attr)) {
@@ -839,22 +843,22 @@ function removeAllButWhitelist($article, $) {
   });
 
   // Remove the mercury-parser-keep class from result
-  $(".".concat(KEEP_CLASS), $article).removeClass(KEEP_CLASS);
+  findWithin($article, ".".concat(KEEP_CLASS)).removeClass(KEEP_CLASS);
   return $article;
 }
 
 // Remove attributes like style or align
-function cleanAttributes($article, $) {
+function cleanAttributes($article) {
   // Grabbing the parent because at this point
   // $article will be wrapped in a div which will
   // have a score set on it.
-  return removeAllButWhitelist($article.parent().length ? $article.parent() : $article, $);
+  return removeAllButWhitelist($article.parent().length ? $article.parent() : $article);
 }
 
 function removeEmpty($article, $) {
-  $article.find('p').each(function (index, p) {
+  findWithin($article, 'p').each(function (index, p) {
     var $p = $(p);
-    if ($p.find('iframe, img').length === 0 && $p.text().trim() === '') $p.remove();
+    if (findWithin($p, 'iframe, img').length === 0 && $p.text().trim() === '') $p.remove();
   });
   return $;
 }
@@ -1096,7 +1100,7 @@ function textLength(text) {
 // Takes a node, returns a float
 function linkDensity($node) {
   var totalTextLength = textLength($node.text());
-  var linkText = $node.find('a').text();
+  var linkText = findWithin($node, 'a').text();
   var linkLength = textLength(linkText);
   if (totalTextLength > 0) {
     return linkLength / totalTextLength;
@@ -1117,8 +1121,8 @@ function removeUnlessContent($node, $, weight) {
   }
   var content = normalizeSpaces($node.text());
   if (scoreCommas(content) < 10) {
-    var pCount = $('p', $node).length;
-    var inputCount = $('input', $node).length;
+    var pCount = findWithin($node, 'p').length;
+    var inputCount = findWithin($node, 'input').length;
 
     // Looks like a form, too many inputs.
     if (inputCount > pCount / 3) {
@@ -1126,7 +1130,7 @@ function removeUnlessContent($node, $, weight) {
       return;
     }
     var contentLength = content.length;
-    var imgCount = $('img', $node).length;
+    var imgCount = findWithin($node, 'img').length;
 
     // Content is too short, and there are no images, so
     // this is probably junk content.
@@ -1161,7 +1165,7 @@ function removeUnlessContent($node, $, weight) {
       $node.remove();
       return;
     }
-    var scriptCount = $('script', $node).length;
+    var scriptCount = findWithin($node, 'script').length;
 
     // Too many script tags, not enough content.
     if (scriptCount > 0 && contentLength < 150) {
@@ -1178,10 +1182,10 @@ function removeUnlessContent($node, $, weight) {
 //
 // Return this same doc.
 function cleanTags($article, $) {
-  $(CLEAN_CONDITIONALLY_TAGS, $article).each(function (index, node) {
+  findWithin($article, CLEAN_CONDITIONALLY_TAGS).each(function (index, node) {
     var $node = $(node);
     // If marked to keep, skip it
-    if ($node.hasClass(KEEP_CLASS) || $node.find(".".concat(KEEP_CLASS)).length > 0) return;
+    if ($node.hasClass(KEEP_CLASS) || findWithin($node, ".".concat(KEEP_CLASS)).length > 0) return;
     var weight = getScore($node);
     if (!weight) {
       weight = getOrInitScore($node, $);
@@ -1201,7 +1205,7 @@ function cleanTags($article, $) {
 
 function cleanHeaders($article, $) {
   var title = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : '';
-  $(HEADER_TAG_LIST, $article).each(function (index, header) {
+  findWithin($article, HEADER_TAG_LIST).each(function (index, header) {
     var $header = $(header);
     if ($(header).hasClass(KEEP_CLASS)) {
       return $header;
@@ -1261,7 +1265,7 @@ function absolutize($, rootUrl, attr) {
   });
 }
 function absolutizeSet($, rootUrl, $content) {
-  $('[srcset]', $content).each(function (_, node) {
+  findWithin($content, '[srcset]').each(function (_, node) {
     var attrs = getAttrs(node);
     var urlSet = attrs.srcset;
     if (urlSet) {
@@ -1485,11 +1489,19 @@ function convertLazyLoadedImages($) {
   return $;
 }
 
-function isComment(index, node) {
-  return node.type === 'comment';
-}
 function cleanComments($) {
-  $.root().find('*').contents().filter(isComment).remove();
+  var root = $.root().get(0);
+  var stack = root && root.children ? _toConsumableArray(root.children) : [];
+  var comments = [];
+  while (stack.length > 0) {
+    var node = stack.pop();
+    if (node.type === 'comment') {
+      comments.push(node);
+    } else if (node.children) {
+      stack.push.apply(stack, _toConsumableArray(node.children));
+    }
+  }
+  $(comments).remove();
   return $;
 }
 function clean$2($) {
@@ -7957,7 +7969,7 @@ function extractCleanNode(article, _ref) {
   removeEmpty(article, $);
 
   // Remove unnecessary attributes
-  cleanAttributes(article, $);
+  cleanAttributes(article);
   return article;
 }
 
@@ -9537,26 +9549,33 @@ var RootExtractor = {
 
 function ownKeys$1(e, r) { var t = _Object$keys(e); if (_Object$getOwnPropertySymbols) { var o = _Object$getOwnPropertySymbols(e); r && (o = o.filter(function (r) { return _Object$getOwnPropertyDescriptor(e, r).enumerable; })), t.push.apply(t, o); } return t; }
 function _objectSpread$1(e) { for (var r = 1; r < arguments.length; r++) { var t = null != arguments[r] ? arguments[r] : {}; r % 2 ? ownKeys$1(Object(t), true).forEach(function (r) { _defineProperty(e, r, t[r]); }) : _Object$getOwnPropertyDescriptors ? _Object$defineProperties(e, _Object$getOwnPropertyDescriptors(t)) : ownKeys$1(Object(t)).forEach(function (r) { _Object$defineProperty(e, r, _Object$getOwnPropertyDescriptor(t, r)); }); } return e; }
+var MAX_PAGES = 5;
+var MAX_EXTRACTED_CONTENT_LENGTH = 5 * 1024 * 1024;
+var encoder = new TextEncoder();
+function byteLength(value) {
+  return encoder.encode(value).byteLength;
+}
 function collectAllPages(_x) {
   return _collectAllPages.apply(this, arguments);
 }
 function _collectAllPages() {
   _collectAllPages = _asyncToGenerator(/*#__PURE__*/_regeneratorRuntime.mark(function _callee(_ref) {
-    var next_page_url, html, $, metaCache, result, Extractor, title, url, pages, previousUrls, extractorOpts, nextPageResult, word_count;
+    var next_page_url, html, $, metaCache, result, Extractor, title, url, pages, content, contentLength, word_count, previousUrls, pageNumber, extractorOpts, nextPageResult, appendedContent, appendedLength;
     return _regeneratorRuntime.wrap(function (_context) {
       while (1) switch (_context.prev = _context.next) {
         case 0:
           next_page_url = _ref.next_page_url, html = _ref.html, $ = _ref.$, metaCache = _ref.metaCache, result = _ref.result, Extractor = _ref.Extractor, title = _ref.title, url = _ref.url;
-          // At this point, we've fetched just the first page
           pages = 1;
-          previousUrls = [removeAnchor(url)]; // If we've gone over 26 pages, something has
-          // likely gone wrong.
+          content = result.content || '';
+          contentLength = byteLength(content);
+          word_count = Number(result.word_count) || 0;
+          previousUrls = [removeAnchor(url)];
         case 1:
-          if (!(next_page_url && pages < 26)) {
-            _context.next = 3;
+          if (!(next_page_url && pages < MAX_PAGES)) {
+            _context.next = 4;
             break;
           }
-          pages += 1;
+          pageNumber = pages + 1;
           _context.next = 2;
           return Resource.create(next_page_url);
         case 2:
@@ -9571,23 +9590,32 @@ function _collectAllPages() {
             previousUrls: previousUrls
           };
           nextPageResult = RootExtractor.extract(Extractor, extractorOpts);
+          appendedContent = "<hr><h4>Page ".concat(pageNumber, "</h4>").concat(nextPageResult.content || '');
+          appendedLength = byteLength(appendedContent);
+          if (!(contentLength + appendedLength > MAX_EXTRACTED_CONTENT_LENGTH)) {
+            _context.next = 3;
+            break;
+          }
+          return _context.abrupt("continue", 4);
+        case 3:
           previousUrls.push(next_page_url);
+          content = "".concat(content).concat(appendedContent);
           result = _objectSpread$1(_objectSpread$1({}, result), {}, {
-            content: "".concat(result.content, "<hr><h4>Page ").concat(pages, "</h4>").concat(nextPageResult.content)
+            content: content
           });
+          contentLength += appendedLength;
+          word_count += (Number(nextPageResult.word_count) || 0) + 2;
+          pages = pageNumber;
           next_page_url = nextPageResult.next_page_url;
           _context.next = 1;
           break;
-        case 3:
-          word_count = GenericExtractor.word_count({
-            content: "<div>".concat(result.content, "</div>")
-          });
+        case 4:
           return _context.abrupt("return", _objectSpread$1(_objectSpread$1({}, result), {}, {
             total_pages: pages,
             rendered_pages: pages,
             word_count: word_count
           }));
-        case 4:
+        case 5:
         case "end":
           return _context.stop();
       }
