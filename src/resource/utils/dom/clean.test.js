@@ -42,4 +42,11 @@ describe('clean($)', () => {
       '<div>before<span>middle</span>after</div>'
     );
   });
+
+  it('removes comments from a high-fan-out tree', () => {
+    const comments = '<!-- comment -->'.repeat(130000);
+    const $ = cheerio.load(`<div>before${comments}after</div>`, null, false);
+
+    assert.strictEqual(clean($).html(), '<div>beforeafter</div>');
+  });
 });
