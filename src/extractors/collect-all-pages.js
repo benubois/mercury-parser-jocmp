@@ -22,7 +22,8 @@ export default async function collectAllPages({
   url,
 }) {
   let pages = 1;
-  let contentLength = byteLength(result.content || '');
+  let content = result.content || '';
+  let contentLength = byteLength(content);
   let word_count = Number(result.word_count) || 0;
   const previousUrls = [removeAnchor(url)];
   while (next_page_url && pages < MAX_PAGES) {
@@ -51,9 +52,10 @@ export default async function collectAllPages({
     }
 
     previousUrls.push(next_page_url);
+    content = `${content}${appendedContent}`;
     result = {
       ...result,
-      content: `${result.content}${appendedContent}`,
+      content,
     };
     contentLength += appendedLength;
     word_count += (Number(nextPageResult.word_count) || 0) + 2;

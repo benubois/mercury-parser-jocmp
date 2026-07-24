@@ -20,6 +20,11 @@ jest.mock('extractors/generic', () => ({
 }));
 
 const origin = 'https://example.com/article';
+const maxExtractedContentLength = 5 * 1024 * 1024;
+
+function byteLength(value) {
+  return new TextEncoder().encode(value).byteLength;
+}
 
 function options(result = {}) {
   return {
@@ -95,5 +100,72 @@ describe('collectAllPages', () => {
 
     assert.strictEqual(GenericExtractor.word_count.mock.calls.length, 0);
     assert.strictEqual(result.word_count, 9);
+  });
+
+  it('normalizes null first-page content at the exact aggregate boundary', async () => {
+    const heading = '<hr><h4>Page 2</h4>';
+    const appendedContent = `${heading}${'b'.repeat(
+      maxExtractedContentLength - byteLength(heading)
+    )}`;
+    Resource.create.mockResolvedValue({ html: () => '<html></html>' });
+    RootExtractor.extract.mockReturnValue({
+      content: appendedContent.slice(heading.length),
+      word_count: 4,
+      next_page_url: null,
+    });
+
+    const result = await collectAllPages(options({ content: null }));
+
+    assert.strictEqual(byteLength(appendedContent), maxExtractedContentLength);
+    assert.strictEqual(result.content, appendedContent);
+    assert.strictEqual(result.total_pages, 2);
+    assert.strictEqual(result.word_count, 9);
+  });
+
+  it('normalizes undefined first-page content with multibyte byte accounting', async () => {
+    const heading = '<hr><h4>Page 2</h4>';
+    const firstCharacter = '€';
+    const appendedContent = `${heading}${firstCharacter}${'b'.repeat(
+      maxExtractedContentLength -
+        byteLength(heading) -
+        byteLength(firstCharacter)
+    )}`;
+    Resource.create.mockResolvedValue({ html: () => '<html></html>' });
+    RootExtractor.extract.mockReturnValue({
+      content: appendedContent.slice(heading.length),
+      word_count: 4,
+      next_page_url: null,
+    });
+
+    const result = await collectAllPages(options({ content: undefined }));
+
+    assert.strictEqual(byteLength(appendedContent), maxExtractedContentLength);
+    assert.strictEqual(result.content, appendedContent);
+    assert.strictEqual(result.total_pages, 2);
+    assert.strictEqual(result.word_count, 9);
+  });
+
+  it('leaves state unchanged when a candidate exceeds the aggregate budget', async () => {
+    const firstPage = 'a'.repeat(maxExtractedContentLength - 1);
+    let candidatePreviousUrls;
+    Resource.create.mockResolvedValue({ html: () => '<html></html>' });
+    RootExtractor.extract.mockImplementation((_Extractor, { previousUrls }) => {
+      candidatePreviousUrls = previousUrls;
+      return {
+        content: '€',
+        word_count: 4,
+        next_page_url: `${origin}/3`,
+      };
+    });
+
+    const result = await collectAllPages(
+      options({ content: firstPage, word_count: 7 })
+    );
+
+    assert.deepStrictEqual(candidatePreviousUrls, [`${origin}/1`]);
+    assert.strictEqual(result.content, firstPage);
+    assert.strictEqual(result.total_pages, 1);
+    assert.strictEqual(result.rendered_pages, 1);
+    assert.strictEqual(result.word_count, 7);
   });
 });
