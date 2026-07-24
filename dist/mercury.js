@@ -55,9 +55,57 @@ function _interopNamespaceDefault(e) {
 
 var cheerio__namespace = /*#__PURE__*/_interopNamespaceDefault(cheerio);
 
-var NORMALIZE_RE = /\s{2,}(?![^<>]*<\/(pre|code|textarea)>)/g;
+// Opening tag of a whitespace-significant element, whose contents must be left
+// untouched.
+var OPEN_BLOCK_RE = /<(pre|code|textarea)[^>]*>/gi;
+
+// Matching closing tags, searched for as plain literals (no backtracking).
+var CLOSE_BLOCK_RE = {
+  pre: /<\/pre>/gi,
+  code: /<\/code>/gi,
+  textarea: /<\/textarea>/gi
+};
+
+// Collapse runs of 2+ whitespace to a single space. Plain and linear.
+var WHITESPACE_RE = /\s{2,}/g;
+
+// Collapse whitespace, but preserve it inside <pre>/<code>/<textarea> blocks
+// where it is significant.
+//
+// This walks the string, carving out those blocks and only collapsing
+// whitespace in the segments between them. A previous implementation used a
+// single regex with a `(?![^<>]*<\/(pre|code|textarea)>)` negative lookahead;
+// that ran a lookahead scan at every whitespace run, and on tag-free strings
+// (e.g. $node.text()) each scan ran to end-of-string, degrading to O(n^2) and
+// pegging the CPU for many seconds on large articles.
+//
+// The scan below stays O(n): each opening tag triggers at most one forward
+// search for its closing tag, and an unmatched open ends the walk rather than
+// re-scanning from the next character.
 function normalizeSpaces(text) {
-  return text.replace(NORMALIZE_RE, ' ').trim();
+  var result = '';
+  var cursor = 0;
+  var open;
+
+  // Reset in case a previous invocation threw mid-loop and left lastIndex set.
+  OPEN_BLOCK_RE.lastIndex = 0;
+  while ((open = OPEN_BLOCK_RE.exec(text)) !== null) {
+    var closeRe = CLOSE_BLOCK_RE[open[1].toLowerCase()];
+    closeRe.lastIndex = OPEN_BLOCK_RE.lastIndex;
+    var close = closeRe.exec(text);
+
+    // No matching close tag: nothing left to preserve, so stop and let the
+    // remainder be collapsed below.
+    if (close === null) break;
+    var blockEnd = close.index + close[0].length;
+    // Collapse the text before the block, keep the block itself verbatim.
+    result += text.slice(cursor, open.index).replace(WHITESPACE_RE, ' ');
+    result += text.slice(open.index, blockEnd);
+    cursor = blockEnd;
+    OPEN_BLOCK_RE.lastIndex = blockEnd;
+  }
+  result += text.slice(cursor).replace(WHITESPACE_RE, ' ');
+  return result.trim();
 }
 
 // Given a node type to search for, and a list of regular expressions,
@@ -219,7 +267,14 @@ var REQUEST_HEADERS = isBrowser ? {} : {
 };
 
 // The number of milliseconds to attempt to fetch a resource before timing out.
+// NOTE: postman-request's `timeout` is a connect + inter-byte idle timeout, so
+// it does NOT bound total download time; MAX_FETCH_TIME (below) does.
 var FETCH_TIMEOUT = 10000;
+
+// Hard ceiling on the total time a single fetch may take, regardless of
+// inter-byte activity. Guards against a slow-trickle response that keeps
+// resetting FETCH_TIMEOUT and would otherwise hang the request forever.
+var MAX_FETCH_TIME = 30000;
 
 // Content types that we do not extract content from
 var BAD_CONTENT_TYPES = ['audio/mpeg', 'image/gif', 'image/jpeg', 'image/jpg'];
@@ -231,9 +286,23 @@ var MAX_CONTENT_LENGTH = 5242880;
 
 function ownKeys$h(e, r) { var t = _Object$keys(e); if (_Object$getOwnPropertySymbols) { var o = _Object$getOwnPropertySymbols(e); r && (o = o.filter(function (r) { return _Object$getOwnPropertyDescriptor(e, r).enumerable; })), t.push.apply(t, o); } return t; }
 function _objectSpread$h(e) { for (var r = 1; r < arguments.length; r++) { var t = null != arguments[r] ? arguments[r] : {}; r % 2 ? ownKeys$h(Object(t), true).forEach(function (r) { _defineProperty(e, r, t[r]); }) : _Object$getOwnPropertyDescriptors ? _Object$defineProperties(e, _Object$getOwnPropertyDescriptors(t)) : ownKeys$h(Object(t)).forEach(function (r) { _Object$defineProperty(e, r, _Object$getOwnPropertyDescriptor(t, r)); }); } return e; }
+
+// Perform the request, enforcing a hard ceiling on total time. postman-request's
+// `timeout` only bounds connect + inter-byte gaps, so a response that trickles
+// bytes just often enough would never time out; the deadline timer below aborts
+// it. `requester` is injectable for testing.
 function get(options) {
+  var _ref = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {},
+    _ref$maxFetchTime = _ref.maxFetchTime,
+    maxFetchTime = _ref$maxFetchTime === void 0 ? MAX_FETCH_TIME : _ref$maxFetchTime,
+    _ref$requester = _ref.requester,
+    requester = _ref$requester === void 0 ? request : _ref$requester;
   return new _Promise(function (resolve, reject) {
-    request(options, function (err, response, body) {
+    var settled = false;
+    var req = requester(options, function (err, response, body) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
       if (err) {
         reject(err);
       } else {
@@ -243,6 +312,15 @@ function get(options) {
         });
       }
     });
+    var deadline = setTimeout(function () {
+      if (settled) return;
+      settled = true;
+      if (req && typeof req.abort === 'function') req.abort();
+      reject(new Error("Fetch exceeded maximum time of ".concat(maxFetchTime, "ms")));
+    }, maxFetchTime);
+
+    // Don't let the deadline timer keep the process alive on its own.
+    if (typeof deadline.unref === 'function') deadline.unref();
   });
 }
 
@@ -288,6 +366,33 @@ function validateResponse(response) {
 // TODO: Ensure we are not fetching something enormous. Always return
 //       unicode content for HTML, with charset conversion.
 
+function buildRequestOptions(url, parsedUrl) {
+  var headers = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
+  parsedUrl = parsedUrl || URL$1.parse(encodeURI(url));
+  return _objectSpread$h({
+    url: parsedUrl.href,
+    headers: _objectSpread$h(_objectSpread$h({}, REQUEST_HEADERS), headers),
+    timeout: FETCH_TIMEOUT,
+    // Cap the streamed (decompressed) response body so an oversized/chunked
+    // body or a gzip bomb cannot exhaust memory. postman-request aborts the
+    // request once this many bytes have been received.
+    maxResponseSize: MAX_CONTENT_LENGTH,
+    // Accept cookies, but in a per-request jar so cookies don't accumulate in a
+    // process-wide shared jar (which would grow unbounded across domains in a
+    // long-running process).
+    jar: request.jar(),
+    // Set to null so the response returns as binary and body as buffer
+    // https://github.com/request/request#requestoptions-callback
+    encoding: null,
+    // Accept and decode gzip
+    gzip: true,
+    // Follow any non-GET redirects
+    followAllRedirects: true
+  }, typeof window !== 'undefined' ? {} : {
+    // Follow GET redirects; this option is for Node only
+    followRedirect: true
+  });
+}
 function fetchResource(_x, _x2) {
   return _fetchResource.apply(this, arguments);
 }
@@ -304,24 +409,7 @@ function _fetchResource() {
       while (1) switch (_context.prev = _context.next) {
         case 0:
           headers = _args.length > 2 && _args[2] !== undefined ? _args[2] : {};
-          parsedUrl = parsedUrl || URL$1.parse(encodeURI(url));
-          options = _objectSpread$h({
-            url: parsedUrl.href,
-            headers: _objectSpread$h(_objectSpread$h({}, REQUEST_HEADERS), headers),
-            timeout: FETCH_TIMEOUT,
-            // Accept cookies
-            jar: true,
-            // Set to null so the response returns as binary and body as buffer
-            // https://github.com/request/request#requestoptions-callback
-            encoding: null,
-            // Accept and decode gzip
-            gzip: true,
-            // Follow any non-GET redirects
-            followAllRedirects: true
-          }, typeof window !== 'undefined' ? {} : {
-            // Follow GET redirects; this option is for Node only
-            followRedirect: true
-          });
+          options = buildRequestOptions(url, parsedUrl, headers);
           _context.next = 1;
           return get(options);
         case 1:
@@ -1354,7 +1442,11 @@ function isWordpress($) {
 var IS_LINK = new RegExp('https?://', 'i');
 var IMAGE_RE = '.(png|gif|jpe?g)';
 var IS_IMAGE = new RegExp("".concat(IMAGE_RE), 'i');
-var IS_SRCSET = new RegExp("".concat(IMAGE_RE, "(\\?\\S+)?(\\s*[\\d.]+[wx])"), 'i');
+// NOTE: the descriptor requires at least one whitespace (`\s+`) separating it
+// from the URL/query. A srcset descriptor is always whitespace-separated, and
+// `\s+` (vs `\s*`) removes the overlap between the greedy `\S+` query and the
+// `[\d.]+` descriptor that made this O(n^2) on long numeric query strings.
+var IS_SRCSET = new RegExp("".concat(IMAGE_RE, "(\\?\\S+)?(\\s+[\\d.]+[wx])"), 'i');
 var TAGS_TO_REMOVE = ['script', 'style', 'form'].join(',');
 
 // Convert all instances of images with potentially
@@ -7657,12 +7749,18 @@ var TEXT_LINK_RE = new RegExp('http(s)?://', 'i');
 var MS_DATE_STRING = /^\d{13}$/i;
 var SEC_DATE_STRING = /^\d{10}$/i;
 var CLEAN_DATE_STRING_RE = /^\s*published\s*:?\s*(.*)/i;
-var TIME_MERIDIAN_SPACE_RE = /(.*\d)(am|pm)(.*)/i;
+// Anchored at `^` so the (already start-greedy) `.*` cannot be retried from
+// every position — without the anchor this was O(n^2) on long digit/space
+// strings that contain no am/pm.
+var TIME_MERIDIAN_SPACE_RE = /^(.*\d)(am|pm)(.*)/i;
 var TIME_MERIDIAN_DOTS_RE = /\.m\./i;
 var TIME_NOW_STRING = /^\s*(just|right)?\s*now\s*/i;
 var timeUnits = ['seconds?', 'minutes?', 'hours?', 'days?', 'weeks?', 'months?', 'years?'];
 var allTimeUnits = timeUnits.join('|');
-var TIME_AGO_STRING = new RegExp("(\\d+)\\s+(".concat(allTimeUnits, ")\\s+ago"), 'i');
+// The `(?<!\\d)` ensures the digit run is only matched from its start, so an
+// unanchored scan can't re-run `\\d+` from every position — without it this was
+// O(n^2) on a long digit string with no trailing " <unit> ago".
+var TIME_AGO_STRING = new RegExp("(?<!\\d)(\\d+)\\s+(".concat(allTimeUnits, ")\\s+ago"), 'i');
 var months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 var allMonths = months.join('|');
 var timestamp1 = '[0-9]{1,2}:[0-9]{2,2}( ?[ap].?m.?)?';
@@ -7677,7 +7775,13 @@ var TIME_WITH_OFFSET_RE = /([+-]\d{2}:?\d{2}|Z)$/;
 // CLEAN TITLE CONSTANTS
 // A regular expression that will match separating characters on a
 // title, that usually denote breadcrumbs or something similar.
-var TITLE_SPLITTERS_RE = /(: | - | \| )/g;
+//
+// NOTE: intentionally NOT global. It's used with `.test()` in cleanTitle, and a
+// /g regex makes `.test()` stateful (advancing lastIndex across parses), which
+// made title cleaning non-deterministic in a long-running process. The only
+// other consumer, `title.split(TITLE_SPLITTERS_RE)`, does not need /g — String
+// .split ignores the flag.
+var TITLE_SPLITTERS_RE = /(: | - | \| )/;
 var DOMAIN_ENDINGS_RE = new RegExp('.com$|.net$|.org$|.co.uk$', 'g');
 
 // Take an author string (like 'By David Smith ') and clean it to
