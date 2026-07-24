@@ -9,7 +9,14 @@ export const REQUEST_HEADERS = isBrowser
     };
 
 // The number of milliseconds to attempt to fetch a resource before timing out.
+// NOTE: postman-request's `timeout` is a connect + inter-byte idle timeout, so
+// it does NOT bound total download time; MAX_FETCH_TIME (below) does.
 export const FETCH_TIMEOUT = 10000;
+
+// Hard ceiling on the total time a single fetch may take, regardless of
+// inter-byte activity. Guards against a slow-trickle response that keeps
+// resetting FETCH_TIMEOUT and would otherwise hang the request forever.
+export const MAX_FETCH_TIME = 30000;
 
 // Content types that we do not extract content from
 const BAD_CONTENT_TYPES = [

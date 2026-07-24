@@ -25,7 +25,10 @@ export const DEK_SELECTORS = ['.entry-summary'];
 export const MS_DATE_STRING = /^\d{13}$/i;
 export const SEC_DATE_STRING = /^\d{10}$/i;
 export const CLEAN_DATE_STRING_RE = /^\s*published\s*:?\s*(.*)/i;
-export const TIME_MERIDIAN_SPACE_RE = /(.*\d)(am|pm)(.*)/i;
+// Anchored at `^` so the (already start-greedy) `.*` cannot be retried from
+// every position — without the anchor this was O(n^2) on long digit/space
+// strings that contain no am/pm.
+export const TIME_MERIDIAN_SPACE_RE = /^(.*\d)(am|pm)(.*)/i;
 export const TIME_MERIDIAN_DOTS_RE = /\.m\./i;
 export const TIME_NOW_STRING = /^\s*(just|right)?\s*now\s*/i;
 const timeUnits = [
@@ -38,8 +41,11 @@ const timeUnits = [
   'years?',
 ];
 const allTimeUnits = timeUnits.join('|');
+// The `(?<!\\d)` ensures the digit run is only matched from its start, so an
+// unanchored scan can't re-run `\\d+` from every position — without it this was
+// O(n^2) on a long digit string with no trailing " <unit> ago".
 export const TIME_AGO_STRING = new RegExp(
-  `(\\d+)\\s+(${allTimeUnits})\\s+ago`,
+  `(?<!\\d)(\\d+)\\s+(${allTimeUnits})\\s+ago`,
   'i'
 );
 const months = [
@@ -72,6 +78,12 @@ export const TIME_WITH_OFFSET_RE = /([+-]\d{2}:?\d{2}|Z)$/;
 // CLEAN TITLE CONSTANTS
 // A regular expression that will match separating characters on a
 // title, that usually denote breadcrumbs or something similar.
-export const TITLE_SPLITTERS_RE = /(: | - | \| )/g;
+//
+// NOTE: intentionally NOT global. It's used with `.test()` in cleanTitle, and a
+// /g regex makes `.test()` stateful (advancing lastIndex across parses), which
+// made title cleaning non-deterministic in a long-running process. The only
+// other consumer, `title.split(TITLE_SPLITTERS_RE)`, does not need /g — String
+// .split ignores the flag.
+export const TITLE_SPLITTERS_RE = /(: | - | \| )/;
 
 export const DOMAIN_ENDINGS_RE = new RegExp('.com$|.net$|.org$|.co.uk$', 'g');
