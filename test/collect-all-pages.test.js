@@ -146,7 +146,10 @@ describe('collectAllPages', () => {
   });
 
   it('leaves state unchanged when a candidate exceeds the aggregate budget', async () => {
-    const firstPage = 'a'.repeat(maxExtractedContentLength - 1);
+    const heading = '<hr><h4>Page 2</h4>';
+    const firstPage = 'a'.repeat(
+      maxExtractedContentLength - byteLength(heading) - 1
+    );
     let candidatePreviousUrls;
     Resource.create.mockResolvedValue({ html: () => '<html></html>' });
     RootExtractor.extract.mockImplementation((_Extractor, { previousUrls }) => {
@@ -162,6 +165,10 @@ describe('collectAllPages', () => {
       options({ content: firstPage, word_count: 7 })
     );
 
+    assert.strictEqual(
+      firstPage.length + heading.length + '€'.length,
+      maxExtractedContentLength
+    );
     assert.deepStrictEqual(candidatePreviousUrls, [`${origin}/1`]);
     assert.strictEqual(result.content, firstPage);
     assert.strictEqual(result.total_pages, 1);
