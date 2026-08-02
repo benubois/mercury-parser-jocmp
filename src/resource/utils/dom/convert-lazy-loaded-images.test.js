@@ -89,9 +89,9 @@ describe('convertLazyLoadedImages($)', () => {
     const value = `http://example.com/a.png?${'9'.repeat(50000)}`;
     const $ = cheerio.load(`<img data-src="${value}">`);
 
-    const start = process.hrtime.bigint();
+    const start = performance.now();
     convertLazyLoadedImages($);
-    const elapsedMs = Number(process.hrtime.bigint() - start) / 1e6;
+    const elapsedMs = performance.now() - start;
 
     assert.ok(
       elapsedMs < 1000,

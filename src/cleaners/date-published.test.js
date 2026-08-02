@@ -83,9 +83,9 @@ describe('cleanDatePublished(dateString)', () => {
   it('handles a huge numeric date string in linear time', () => {
     const dateString = '9'.repeat(40000);
 
-    const start = process.hrtime.bigint();
+    const start = performance.now();
     cleanDatePublished(dateString);
-    const elapsedMs = Number(process.hrtime.bigint() - start) / 1e6;
+    const elapsedMs = performance.now() - start;
 
     assert.ok(
       elapsedMs < 1000,
