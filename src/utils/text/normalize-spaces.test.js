@@ -40,9 +40,9 @@ describe('normalizeSpaces(text)', () => {
     // ~350KB of tag-free, whitespace-heavy text, like a big article's .text().
     const text = 'lorem ipsum dolor  sit amet  '.repeat(12000);
 
-    const start = process.hrtime.bigint();
+    const start = performance.now();
     const result = normalizeSpaces(text);
-    const elapsedMs = Number(process.hrtime.bigint() - start) / 1e6;
+    const elapsedMs = performance.now() - start;
 
     assert.strictEqual(result.includes('  '), false);
     assert.ok(
@@ -58,9 +58,9 @@ describe('normalizeSpaces(text)', () => {
   it('stays linear on malformed input with many unclosed preserve tags', () => {
     const text = '<pre>  x  '.repeat(60000); // ~600KB, no closing tags
 
-    const start = process.hrtime.bigint();
+    const start = performance.now();
     normalizeSpaces(text);
-    const elapsedMs = Number(process.hrtime.bigint() - start) / 1e6;
+    const elapsedMs = performance.now() - start;
 
     assert.ok(
       elapsedMs < 1000,
